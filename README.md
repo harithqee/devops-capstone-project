@@ -1,4 +1,8 @@
-# DevOps Capstone Template
+# Customer Accounts Microservice
+
+[![CI build](https://github.com/harithqee/devops-capstone-project/actions/workflows/ci-build.yaml/badge.svg)](https://github.com/harithqee/devops-capstone-project/actions/workflows/ci-build.yaml)
+
+Customer account REST API supporting create, list, read, update, and delete operations with PostgreSQL persistence.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.9](https://img.shields.io/badge/Python-3.9-green.svg)](https://shields.io/)

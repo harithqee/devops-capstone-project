@@ -11,7 +11,7 @@ from unittest import TestCase
 from tests.factories import AccountFactory
 from service.common import status  # HTTP Status Codes
 from service.models import db, Account, init_db
-from service.routes import app
+from service import app, talisman
 
 DATABASE_URI = os.getenv(
     "DATABASE_URI", "postgresql://postgres:postgres@localhost:5432/postgres"
@@ -32,6 +32,7 @@ class TestAccountService(TestCase):
         app.config["TESTING"] = True
         app.config["DEBUG"] = False
         app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URI
+        talisman.force_https = False
         app.logger.setLevel(logging.CRITICAL)
         init_db(app)
 
@@ -123,4 +124,58 @@ class TestAccountService(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
 
-    # ADD YOUR TEST CASES HERE ...
+    def test_read_account(self):
+        account = self._create_accounts(1)[0]
+        response = self.client.get(f"{BASE_URL}/{account.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.get_json(), account.serialize())
+
+    def test_read_missing_account(self):
+        self.assertEqual(self.client.get(f"{BASE_URL}/999999").status_code, 404)
+
+    def test_list_accounts(self):
+        accounts = self._create_accounts(3)
+        response = self.client.get(BASE_URL)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertCountEqual(response.get_json(), [a.serialize() for a in accounts])
+
+    def test_update_account(self):
+        account = self._create_accounts(1)[0]
+        payload = account.serialize()
+        payload["address"] = "100 Example Avenue"
+        url = f"{BASE_URL}/{account.id}"
+        response = self.client.put(url, json=payload)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.get_json(), payload)
+        self.assertEqual(self.client.get(url).get_json(), payload)
+
+    def test_update_invalid_date(self):
+        account = self._create_accounts(1)[0]
+        data = account.serialize()
+        data["date_joined"] = "invalid"
+        self.assertEqual(self.client.put(f"{BASE_URL}/{account.id}", json=data).status_code, 400)
+
+    def test_delete_account(self):
+        account = self._create_accounts(1)[0]
+        url = f"{BASE_URL}/{account.id}"
+        self.assertEqual(self.client.delete(url).status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(self.client.get(url).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.delete(url).status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_security_headers_and_cors(self):
+        response = self.client.get(BASE_URL, headers={"Origin": "https://example.org"})
+        self.assertEqual(response.headers["X-Frame-Options"], "SAMEORIGIN")
+        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(response.headers["Access-Control-Allow-Origin"], "https://example.org")
+
+    def test_method_not_allowed(self):
+        self.assertEqual(self.client.patch(BASE_URL).status_code, 405)
+
+    def test_internal_error_handler(self):
+        from service.common.error_handlers import internal_server_error
+        from werkzeug.exceptions import InternalServerError
+
+        with app.app_context():
+            response, code = internal_server_error(InternalServerError())
+            self.assertEqual(code, 500)
+            self.assertEqual(response.get_json()["status"], 500)

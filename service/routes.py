@@ -4,8 +4,8 @@ Account Service
 This microservice handles the lifecycle of Accounts
 """
 # pylint: disable=unused-import
-from flask import jsonify, request, make_response, abort, url_for   # noqa; F401
-from service.models import Account
+from flask import jsonify, request, make_response, abort, url_for
+from service.models import Account, DataValidationError
 from service.common import status  # HTTP Status Codes
 from . import app  # Import Flask application
 
@@ -29,7 +29,7 @@ def index():
         jsonify(
             name="Account REST API Service",
             version="1.0",
-            # paths=url_for("list_accounts", _external=True),
+            paths=url_for("list_accounts", _external=True),
         ),
         status.HTTP_200_OK,
     )
@@ -47,12 +47,10 @@ def create_accounts():
     app.logger.info("Request to create an Account")
     check_content_type("application/json")
     account = Account()
-    account.deserialize(request.get_json())
+    deserialize_account(account)
     account.create()
     message = account.serialize()
-    # Uncomment once get_accounts has been implemented
-    # location_url = url_for("get_accounts", account_id=account.id, _external=True)
-    location_url = "/"  # Remove once get_accounts has been implemented
+    location_url = url_for("get_accounts", account_id=account.id, _external=True)
     return make_response(
         jsonify(message), status.HTTP_201_CREATED, {"Location": location_url}
     )
@@ -61,28 +59,47 @@ def create_accounts():
 # LIST ALL ACCOUNTS
 ######################################################################
 
-# ... place you code here to LIST accounts ...
+@app.get("/accounts")
+def list_accounts():
+    """Return all customer accounts."""
+    return jsonify([account.serialize() for account in Account.all()]), status.HTTP_200_OK
 
 
 ######################################################################
 # READ AN ACCOUNT
 ######################################################################
 
-# ... place you code here to READ an account ...
+@app.get("/accounts/<int:account_id>")
+def get_accounts(account_id):
+    """Read a customer account by ID."""
+    return jsonify(find_account(account_id).serialize()), status.HTTP_200_OK
 
 
 ######################################################################
 # UPDATE AN EXISTING ACCOUNT
 ######################################################################
 
-# ... place you code here to UPDATE an account ...
+@app.put("/accounts/<int:account_id>")
+def update_accounts(account_id):
+    """Replace a customer account's details."""
+    check_content_type("application/json")
+    account = find_account(account_id)
+    deserialize_account(account)
+    account.update()
+    return jsonify(account.serialize()), status.HTTP_200_OK
 
 
 ######################################################################
 # DELETE AN ACCOUNT
 ######################################################################
 
-# ... place you code here to DELETE an account ...
+@app.delete("/accounts/<int:account_id>")
+def delete_accounts(account_id):
+    """Delete an account and return no content."""
+    account = Account.find(account_id)
+    if account is not None:
+        account.delete()
+    return "", status.HTTP_204_NO_CONTENT
 
 
 ######################################################################
@@ -90,9 +107,25 @@ def create_accounts():
 ######################################################################
 
 
+def find_account(account_id):
+    """Return an account or respond with 404."""
+    account = Account.find(account_id)
+    if account is None:
+        abort(status.HTTP_404_NOT_FOUND, f"Account {account_id} not found")
+    return account
+
+
+def deserialize_account(account):
+    """Validate incoming account data."""
+    try:
+        account.deserialize(request.get_json())
+    except ValueError as error:
+        raise DataValidationError("date_joined must be an ISO date") from error
+
+
 def check_content_type(media_type):
     """Checks that the media type is correct"""
-    content_type = request.headers.get("Content-Type")
+    content_type = request.mimetype
     if content_type and content_type == media_type:
         return
     app.logger.error("Invalid Content-Type: %s", content_type)
