@@ -1,52 +1,64 @@
----
 apiVersion: tekton.dev/v1beta1
 kind: Task
 metadata:
-  name: echo
+  name: accounts-cleanup
 spec:
-  description: This task will echo the message.
-  params:
-    - name: message
-      description: The message to echo
-      type: string
-  steps:
-    - name: echo-message
-      image: alpine:3
-      command: [/bin/echo]
-      args: ["$(params.message)"]
----
-apiVersion: tekton.dev/v1beta1
-kind: Task
-metadata:
-  name: cleanup
-spec:
-  description: This task will clean up a workspace by deleting all of the files.
   workspaces:
     - name: source
   steps:
     - name: remove
       image: alpine:3
       env:
-        - name: WORKSPACE_SOURCE_PATH
+        - name: SOURCE_PATH
           value: $(workspaces.source.path)
       workingDir: $(workspaces.source.path)
-      securityContext:
-        runAsNonRoot: false
-        runAsUser: 0
       script: |
-        #!/usr/bin/env sh
+        #!/bin/sh
         set -eu
-        echo "Removing all files from ${WORKSPACE_SOURCE_PATH} ..."
-        # Delete any existing contents of the directory if it exists.
-        #
-        # We don't just "rm -rf ${WORKSPACE_SOURCE_PATH}" because ${WORKSPACE_SOURCE_PATH} might be "/"
-        # or the root of a mounted volume.
-        if [ -d "${WORKSPACE_SOURCE_PATH}" ] ; then
-          # Delete non-hidden files and directories
-          rm -rf "${WORKSPACE_SOURCE_PATH:?}"/*
-          # Delete files and directories starting with . but excluding ..
-          rm -rf "${WORKSPACE_SOURCE_PATH}"/.[!.]*
-          # Delete files and directories starting with .. plus any other character
-          rm -rf "${WORKSPACE_SOURCE_PATH}"/..?*
-        fi
-
+        test -n "$SOURCE_PATH"
+        test "$SOURCE_PATH" != /
+        rm -rf -- "$SOURCE_PATH"/* "$SOURCE_PATH"/.[!.]* "$SOURCE_PATH"/..?*
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: accounts-flake8
+spec:
+  workspaces:
+    - name: source
+  steps:
+    - name: lint
+      image: python:3.9-slim
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/sh
+        set -eu
+        python -m venv /tmp/accounts-lint
+        . /tmp/accounts-lint/bin/activate
+        pip install flake8==6.1.0
+        flake8 service --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 service --count --max-complexity=10 --max-line-length=127 --statistics
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: accounts-nose
+spec:
+  workspaces:
+    - name: source
+  steps:
+    - name: nosetests
+      image: python:3.9-slim
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: DATABASE_URI
+          value: "sqlite://"
+        - name: FORCE_HTTPS
+          value: "false"
+      script: |
+        #!/bin/sh
+        set -eu
+        python -m venv /tmp/accounts-test
+        . /tmp/accounts-test/bin/activate
+        pip install -r requirements.txt
+        nosetests --with-spec --spec-color --with-coverage --cover-package=service --cover-min-percentage=95

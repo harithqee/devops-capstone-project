@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: accounts
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: accounts
+  template:
+    metadata:
+      labels:
+        app: accounts
+    spec:
+      containers:
+        - name: accounts
+          image: REPLACE_ACCOUNTS_IMAGE
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: DATABASE_HOST
+              value: accounts-db
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: accounts-db
+                  key: database-user
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: accounts-db
+                  key: database-password
+            - name: DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: accounts-db
+                  key: database-name
+            - name: FORCE_HTTPS
+              value: "false"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http

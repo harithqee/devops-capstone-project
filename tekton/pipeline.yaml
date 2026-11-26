@@ -1,13 +1,7 @@
-#
-# This pipeline needs the following tasks from Tekton Catalog
-#   - git-clone
-#   - flake8
-#
----
 apiVersion: tekton.dev/v1beta1
 kind: Pipeline
-metadata:  
-  name: cd-pipeline
+metadata:
+  name: accounts-cd-pipeline
 spec:
   workspaces:
     - name: pipeline-workspace
@@ -15,24 +9,67 @@ spec:
     - name: repo-url
     - name: branch
       default: main
+    - name: app-name
+      default: accounts
+    - name: build-image
   tasks:
     - name: init
       workspaces:
         - name: source
-          workspace: pipeline-workspace          
+          workspace: pipeline-workspace
       taskRef:
-        name: cleanup
-
+        name: accounts-cleanup
     - name: clone
+      runAfter: [init]
       workspaces:
         - name: output
-          workspace: pipeline-workspace          
+          workspace: pipeline-workspace
       taskRef:
         name: git-clone
+        kind: ClusterTask
       params:
-      - name: url
-        value: $(params.repo-url)
-      - name: revision
-        value: $(params.branch)
-      runAfter:
-        - init
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.branch)
+    - name: lint
+      runAfter: [clone]
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      taskRef:
+        name: accounts-flake8
+    - name: tests
+      runAfter: [clone]
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      taskRef:
+        name: accounts-nose
+    - name: build
+      runAfter: [lint, tests]
+      taskRef:
+        name: buildah
+        kind: ClusterTask
+      params:
+        - name: IMAGE
+          value: $(params.build-image)
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+    - name: deploy
+      runAfter: [build]
+      taskRef:
+        name: openshift-client
+        kind: ClusterTask
+      workspaces:
+        - name: manifest-dir
+          workspace: pipeline-workspace
+      params:
+        - name: SCRIPT
+          value: |
+            set -eu
+            cd /workspace/manifest-dir
+            sed "s|REPLACE_ACCOUNTS_IMAGE|$(params.build-image)|g" deploy/deployment.yaml | oc apply -f -
+            oc apply -f deploy/service.yaml
+            oc rollout status deployment/$(params.app-name) --timeout=180s
