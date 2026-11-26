@@ -53,6 +53,8 @@ spec:
       env:
         - name: DATABASE_URI
           value: "sqlite://"
+        - name: COVERAGE_FILE
+          value: /tmp/accounts.coverage
         - name: FORCE_HTTPS
           value: "false"
       script: |
